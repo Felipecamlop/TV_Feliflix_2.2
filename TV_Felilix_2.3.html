@@ -1,0 +1,1237 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TV Feliflix - Programação Automática v2.4</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #1f2937; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 10px; }
+        .active-track { border-left: 4px solid #3b82f6; background: #374151; }
+        .live-indicator { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+        .modal-overlay { backdrop-filter: blur(4px); }
+        
+        #tvLogoOverlay {
+            pointer-events: auto;
+            cursor: move;
+            transition: opacity 0.3s ease;
+            z-index: 40;
+            user-select: none;
+            -webkit-user-drag: none;
+        }
+        
+        #tvLogoOverlay.dragging {
+            opacity: 0.5 !important;
+        }
+
+        .folder-content {
+            transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
+            overflow: hidden;
+        }
+        .folder-collapsed {
+            max-height: 0;
+            opacity: 0;
+            display: none;
+        }
+        .folder-expanded {
+            max-height: 5000px;
+            opacity: 1;
+        }
+        
+        .grade-row:hover { background-color: rgba(55, 65, 81, 0.5); }
+
+        /* Estilo para a engrenagem */
+        .settings-btn {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body class="bg-gray-950 text-white font-sans min-h-screen flex flex-col">
+
+    <!-- Botão de Configurações (Engrenagem) -->
+    <div class="settings-btn">
+        <button onclick="toggleSettingsMenu()" class="bg-gray-800/80 hover:bg-gray-700 p-3 rounded-full border border-gray-700 shadow-2xl transition-all hover:rotate-90">
+            <i class="fas fa-cog text-xl"></i>
+        </button>
+        <!-- Menu Suspenso de Configurações -->
+        <div id="settingsMenu" class="hidden absolute right-0 mt-2 w-56 bg-gray-900 border border-gray-800 rounded-xl shadow-2xl p-2 animate-in fade-in slide-in-from-top-2 duration-200">
+            <button onclick="saveAllToLocalStorage()" class="w-full text-left flex items-center gap-3 p-3 hover:bg-gray-800 rounded-lg transition text-sm font-bold">
+                <i class="fas fa-save text-green-500"></i> Salvar dados
+            </button>
+            <div class="border-t border-gray-800 my-1"></div>
+            <p class="text-[9px] text-gray-500 p-2 uppercase font-bold text-center">Configurações e Listas</p>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="p-4 bg-gray-900 border-b border-gray-800 shadow-xl">
+        <div class="container mx-auto flex flex-col md:flex-row justify-between items-center gap-4 pr-12">
+            <div class="flex items-center gap-3">
+                <div class="bg-red-600 px-3 py-1 rounded text-xs font-bold uppercase tracking-widest live-indicator">NO AR</div>
+                <h1 class="text-xl font-bold tracking-tighter">TV <span class="text-blue-500">Feliflix</span> PRO</h1>
+            </div>
+            
+            <div class="flex flex-wrap items-center justify-center gap-4">
+                <button onclick="openGradeModal()" class="bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-lg text-sm transition font-bold border border-indigo-500 flex items-center gap-2 shadow-lg shadow-indigo-900/20">
+                    <i class="fas fa-th-list"></i> GRADE
+                </button>
+
+                <button onclick="openRulesModal()" class="bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-lg text-sm transition font-bold border border-gray-700 flex items-center gap-2">
+                    <i class="fas fa-gavel text-amber-500"></i> Regras
+                </button>
+
+                <div class="bg-gray-800 px-3 py-2 rounded-lg border border-gray-700 flex items-center gap-3">
+                    <label for="commCountInput" class="text-xs font-bold text-gray-400 uppercase">Comerciais:</label>
+                    <input type="number" id="commCountInput" min="1" max="10" value="1" class="w-12 bg-gray-900 border border-gray-600 rounded text-center text-sm font-bold text-blue-400 focus:outline-none focus:border-blue-500">
+                </div>
+
+                <input type="file" id="mainInput" class="hidden" accept="video/*" multiple onchange="addVideos(event, 'main')">
+                <input type="file" id="mainFolderInput" class="hidden" accept="video/*" webkitdirectory directory multiple onchange="addVideos(event, 'main')">
+                <input type="file" id="commInput" class="hidden" accept="video/*" multiple onchange="addVideos(event, 'commercial')">
+                <input type="file" id="commFolderInput" class="hidden" accept="video/*" webkitdirectory directory multiple onchange="addVideos(event, 'commercial')">
+                
+                <div class="flex gap-2">
+                    <div class="flex flex-col gap-1">
+                        <button onclick="document.getElementById('mainInput').click()" class="bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded-lg text-xs transition font-bold">
+                            <i class="fas fa-file-video mr-1"></i> + Programas
+                        </button>
+                        <button onclick="document.getElementById('mainFolderInput').click()" class="bg-blue-800 hover:bg-blue-900 px-3 py-1.5 rounded-lg text-xs transition font-bold">
+                            <i class="fas fa-folder-open mr-1"></i> Add Pasta
+                        </button>
+                    </div>
+
+                    <div class="flex flex-col gap-1">
+                        <button onclick="document.getElementById('commInput').click()" class="bg-amber-600 hover:bg-amber-700 px-3 py-1.5 rounded-lg text-xs transition font-bold">
+                            <i class="fas fa-ad mr-1"></i> + Comerciais
+                        </button>
+                        <button onclick="document.getElementById('commFolderInput').click()" class="bg-amber-800 hover:bg-amber-900 px-3 py-1.5 rounded-lg text-xs transition font-bold">
+                            <i class="fas fa-folder-open mr-1"></i> Add Pasta
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="container mx-auto flex-1 p-4 lg:p-6 flex flex-col lg:flex-row gap-6">
+        <div class="flex-1">
+            <div id="videoContainer" class="relative bg-black rounded-2xl overflow-hidden shadow-2xl border border-gray-800 group">
+                <video id="mainVideo" class="w-full aspect-video" playsinline></video>
+                <img id="tvLogoOverlay" src="" class="absolute hidden" alt="Logo" draggable="false">
+
+                <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-6 translate-y-4 group-hover:translate-y-0 opacity-0 group-hover:opacity-100 transition-all duration-300 z-30">
+                    <input type="range" id="progressBar" class="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500 mb-4" value="0" step="0.1">
+                    <div class="flex justify-between items-center">
+                        <div class="flex items-center gap-6">
+                            <button onclick="togglePlay()" class="hover:text-blue-400 transition"><i id="playIcon" class="fas fa-play text-xl"></i></button>
+                            <div class="flex items-center gap-3">
+                                <button onclick="toggleMute()" class="hover:text-blue-400 transition"><i id="volIcon" class="fas fa-volume-up"></i></button>
+                                <input type="range" id="volBar" class="w-24 h-1 bg-gray-700 rounded-lg appearance-none accent-white" value="100">
+                            </div>
+                            <span id="timeDisplay" class="text-sm font-mono text-gray-300">00:00 / 00:00</span>
+                        </div>
+                        <div class="flex items-center gap-4">
+                            <button onclick="togglePiP()" id="pipBtn" class="hover:text-blue-400 transition" title="Picture-in-Picture">
+                                <i class="fas fa-window-restore text-lg"></i>
+                            </button>
+                            <button onclick="toggleFullscreen()" class="hover:text-blue-400 transition"><i class="fas fa-expand text-lg"></i></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-6 p-6 bg-gray-900 rounded-2xl border border-gray-800 flex items-start gap-4 shadow-lg">
+                <div id="typeBadge" class="hidden px-3 py-1 rounded text-[10px] font-black uppercase bg-gray-700 self-start mt-1"></div>
+                <div class="flex-1">
+                    <h2 id="videoTitle" class="text-2xl font-bold leading-tight">Prepare a sua transmissão</h2>
+                    <div id="introIndicator" class="hidden inline-block bg-purple-600 text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase mb-1">Chamada</div>
+                    <div id="timerContainer" class="hidden flex items-center gap-2 mt-1 text-blue-400 font-mono text-sm font-bold">
+                        <i class="fas fa-clock text-xs"></i>
+                        Termina em: <span id="remainingTime">00:00:00</span>
+                    </div>
+                    <!-- Sinopse aparecerá aqui -->
+                    <p id="videoDesc" class="text-gray-400 text-sm mt-3 leading-relaxed min-h-[40px] border-l-2 border-blue-900 pl-3">Configure a sua playlist e as regras de exibição.</p>
+                </div>
+            </div>
+        </div>
+
+        <aside class="w-full lg:w-96 flex flex-col gap-6">
+            <div class="bg-gray-900 rounded-2xl border border-gray-800 flex flex-col h-[400px] shadow-lg">
+                <div class="p-4 border-b border-gray-800 flex justify-between items-center bg-blue-900/10">
+                    <h3 class="font-bold flex items-center gap-2 text-blue-400 text-sm">
+                        <i class="fas fa-list-ul"></i> Programação Principal
+                    </h3>
+                    <button onclick="openManager('main')" class="text-[10px] bg-blue-600/20 text-blue-400 px-2 py-1 rounded hover:bg-blue-600/40 font-bold uppercase">Config</button>
+                </div>
+                <div id="mainPlaylist" class="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1"></div>
+            </div>
+
+            <div class="bg-gray-900 rounded-2xl border border-gray-800 flex flex-col h-[300px] shadow-lg">
+                <div class="p-4 border-b border-gray-800 flex justify-between items-center bg-amber-900/10">
+                    <h3 class="font-bold flex items-center gap-2 text-amber-400 text-sm">
+                        <i class="fas fa-ad"></i> Comerciais
+                    </h3>
+                    <button onclick="openManager('commercial')" class="text-[10px] bg-amber-600/20 text-amber-400 px-2 py-1 rounded hover:bg-amber-600/40 font-bold uppercase">Config</button>
+                </div>
+                <div id="commPlaylist" class="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1"></div>
+            </div>
+        </aside>
+    </main>
+
+    <!-- Modal Grade -->
+    <div id="gradeModal" class="fixed inset-0 bg-black/95 z-[70] hidden flex flex-col modal-overlay">
+        <div class="p-6 bg-gray-900 border-b border-gray-800 flex justify-between items-center">
+            <div>
+                <h2 class="text-2xl font-bold flex items-center gap-3">
+                    <i class="fas fa-th-list text-indigo-500"></i> Central da Grade
+                </h2>
+                <p class="text-gray-500 text-xs mt-1 uppercase tracking-widest font-bold">Configuração Mestre da Programação</p>
+            </div>
+            <button onclick="closeGradeModal()" class="text-gray-400 hover:text-white bg-gray-800 p-2 rounded-lg hover:bg-gray-700 transition">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+
+        <div class="flex-1 overflow-hidden flex flex-col">
+            <div class="flex-1 p-6 overflow-y-auto custom-scrollbar bg-gray-950">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-lg font-bold text-gray-300">Estrutura de Exibição</h3>
+                    <div class="flex gap-2">
+                         <!-- NOVO BOTÃO DE EDIÇÃO -->
+                         <button onclick="openFolderSettings()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded text-xs font-bold uppercase flex items-center gap-2 border border-indigo-500 shadow-lg shadow-indigo-900/20 mr-2">
+                            <i class="fas fa-edit"></i> Editar
+                         </button>
+                         <button onclick="expandAllGradeFolders(true)" class="text-[10px] bg-gray-800 px-3 py-1 rounded text-gray-400 hover:text-white font-bold uppercase tracking-tighter">Expandir Tudo</button>
+                         <button onclick="expandAllGradeFolders(false)" class="text-[10px] bg-gray-800 px-3 py-1 rounded text-gray-400 hover:text-white font-bold uppercase tracking-tighter">Recolher Tudo</button>
+                    </div>
+                </div>
+                
+                <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden shadow-2xl">
+                    <div class="grid grid-cols-12 bg-gray-800 p-3 text-[10px] font-bold uppercase text-gray-400 tracking-wider">
+                        <div class="col-span-1 text-center">#</div>
+                        <div class="col-span-5">Programa / Pasta</div>
+                        <div class="col-span-3">Chamada (Intro)</div>
+                        <div class="col-span-2">Vinheta (Pausa)</div>
+                        <div class="col-span-1 text-center">Ações</div>
+                    </div>
+                    <div id="gradeListContent" class="divide-y divide-gray-800"></div>
+                </div>
+            </div>
+        </div>
+        <!-- Inputs Ocultos para Grade -->
+        <input type="file" id="introFileInput" class="hidden" accept="video/*" onchange="handleIntroSelected(event)">
+        <input type="file" id="breakFileInput" class="hidden" accept="video/*" onchange="handleBreakSelected(event)">
+    </div>
+
+    <!-- Novo Modal de Configuração de Pastas (Folder Settings) -->
+    <div id="folderConfigModal" class="fixed inset-0 bg-black/90 z-[80] hidden flex items-center justify-center p-4 modal-overlay">
+        <div class="bg-gray-900 border border-gray-700 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+            <div class="p-6 border-b border-gray-800 flex justify-between items-center">
+                <div>
+                    <h3 class="text-xl font-bold flex items-center gap-2"><i class="fas fa-folder-open text-blue-500"></i> Editar Pastas</h3>
+                    <p class="text-gray-500 text-[10px] font-bold uppercase mt-1">Regras de Reprodução por Diretório</p>
+                </div>
+                <button onclick="closeFolderSettings()" class="text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-6 custom-scrollbar bg-gray-950/50">
+                <div id="folderSettingsList" class="space-y-3">
+                    <!-- Lista de pastas gerada via JS -->
+                </div>
+            </div>
+            <div class="p-4 bg-gray-900 border-t border-gray-800 flex justify-end">
+                <button onclick="closeFolderSettings()" class="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-xl text-sm font-bold shadow-lg shadow-blue-900/20">Concluir</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modais Genéricos -->
+    <div id="rulesModal" class="fixed inset-0 bg-black/80 z-50 hidden flex items-center justify-center p-4 modal-overlay">
+        <div class="bg-gray-900 border border-gray-800 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+            <div class="p-6 border-b border-gray-800 flex justify-between items-center">
+                <h2 class="text-xl font-bold flex items-center gap-2"><i class="fas fa-gavel text-amber-500"></i> Regras</h2>
+                <button onclick="closeRulesModal()" class="text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="p-4 space-y-2">
+                <button onclick="openCommercialBreakConfig()" class="w-full flex items-center justify-between p-4 bg-gray-800 hover:bg-gray-700 rounded-xl transition">
+                    <span class="font-bold text-sm">Pausa para Comercial</span>
+                    <i class="fas fa-chevron-right text-gray-500"></i>
+                </button>
+                <button onclick="openLogoConfig()" class="w-full flex items-center justify-between p-4 bg-gray-800 hover:bg-gray-700 rounded-xl transition text-blue-400 border border-blue-900/30">
+                    <span class="font-bold text-sm">Adicionar Logo</span>
+                    <i class="fas fa-image"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="playlistModal" class="fixed inset-0 bg-black/90 z-[60] hidden flex items-center justify-center p-4 modal-overlay">
+        <div class="bg-gray-900 border border-gray-800 w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[85vh]">
+            <div class="p-6 border-b border-gray-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                    <h2 id="modalTitle" class="text-xl font-bold">Gerir Playlist</h2>
+                    <p id="modalSubtitle" class="text-[10px] text-gray-500 uppercase font-bold tracking-widest mt-1">PROGRAMAÇÃO</p>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <button id="toggleShuffleBtn" onclick="togglePlaylistShuffle()" class="bg-gray-800 text-gray-400 border border-gray-700 px-3 py-1.5 rounded-lg text-xs font-bold transition hover:border-gray-500">
+                        <i class="fas fa-random mr-1"></i> Aleatório: <span class="shuffle-status">OFF</span>
+                    </button>
+                    <button onclick="clearCurrentPlaylist()" class="bg-red-600/20 text-red-400 border border-red-900/50 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-600 hover:text-white transition">
+                        <i class="fas fa-trash mr-1"></i> Limpar
+                    </button>
+                    <button onclick="closeManager()" class="text-gray-400 hover:text-white p-2"><i class="fas fa-times"></i></button>
+                </div>
+            </div>
+            <div id="modalContent" class="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-2 bg-gray-950/30"></div>
+            <div class="p-4 border-t border-gray-800 flex flex-wrap gap-3 bg-gray-900 justify-end">
+                <input type="file" id="modalAddFileInput" class="hidden" accept="video/*" multiple onchange="addVideos(event, activeManagerType)">
+                <input type="file" id="modalAddFolderInput" class="hidden" accept="video/*" webkitdirectory directory multiple onchange="addVideos(event, activeManagerType)">
+                <button onclick="document.getElementById('modalAddFileInput').click()" class="bg-blue-600 hover:bg-blue-700 px-5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2">
+                    <i class="fas fa-file-video"></i> Adicionar Ficheiro
+                </button>
+                <button onclick="document.getElementById('modalAddFolderInput').click()" class="bg-gray-700 hover:bg-gray-600 px-5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 border border-gray-500">
+                    <i class="fas fa-folder-open"></i> Add Pasta
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Logo -->
+    <div id="logoConfigModal" class="fixed inset-0 bg-black/90 z-[60] hidden flex items-center justify-center p-4 modal-overlay">
+        <div class="bg-gray-900 border border-gray-700 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+            <div class="p-6 border-b border-gray-800 flex justify-between">
+                <h3 class="text-lg font-bold">Configurar Logotipo</h3>
+                <button onclick="closeLogoConfig()" class="text-gray-400"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-[10px] font-bold text-gray-400 uppercase mb-2">Estado</label>
+                    <button id="logoStatusBtn" onclick="toggleLogoVisibility()" class="w-full py-2 rounded bg-gray-800 border border-gray-700 font-bold text-sm transition">DESATIVADO</button>
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-gray-400 uppercase mb-2">Imagem</label>
+                    <input type="file" id="logoFileInput" class="hidden" accept="image/*" onchange="handleLogoUpload(event)">
+                    <button onclick="document.getElementById('logoFileInput').click()" class="w-full bg-gray-800 p-3 rounded-lg text-xs hover:bg-gray-700 transition font-bold border border-dashed border-gray-600 mb-2 text-gray-300">Selecionar Imagem</button>
+                    <input type="text" id="logoUrlInput" placeholder="Ou URL da imagem..." class="w-full bg-gray-950 border border-gray-700 rounded p-2 text-sm focus:outline-none focus:border-blue-500">
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-400 uppercase mb-2">Tamanho (%)</label>
+                        <input type="range" id="logoSizeInput" min="5" max="50" value="15" class="w-full accent-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-400 uppercase mb-2">Opacidade</label>
+                        <input type="range" id="logoOpacityInput" min="10" max="100" value="100" class="w-full accent-blue-500">
+                    </div>
+                </div>
+            </div>
+            <div class="p-4 bg-gray-950/50 flex gap-2">
+                <button onclick="applyLogoSettings()" class="flex-1 bg-blue-600 hover:bg-blue-700 py-3 rounded-xl font-bold text-sm transition">Aplicar</button>
+                <button onclick="closeLogoConfig()" class="flex-1 bg-gray-800 py-3 rounded-xl font-bold text-sm transition">Fechar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Break -->
+    <div id="commBreakConfigModal" class="fixed inset-0 bg-black/90 z-[60] hidden flex items-center justify-center p-4 modal-overlay">
+        <div class="bg-gray-900 border border-gray-700 w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden p-6">
+            <h3 class="text-lg font-bold mb-4">Pausa para Comercial</h3>
+            <div class="space-y-4">
+                <button id="toggleBreakBtn" onclick="toggleCommBreak()" class="w-full py-3 rounded-xl font-bold text-sm transition bg-gray-800 text-gray-500 border border-gray-700">DESATIVADO</button>
+                <div id="breakSettings" class="opacity-50 pointer-events-none transition-all">
+                    <label class="block text-xs font-bold text-gray-400 uppercase mb-2 text-center">Pausar a cada (minutos):</label>
+                    <input type="number" id="breakTimeInput" min="1" max="120" value="10" class="w-full bg-gray-950 border border-gray-700 rounded-xl px-4 py-3 text-lg font-mono text-amber-500 focus:outline-none text-center">
+                </div>
+                <div class="flex gap-2 mt-4">
+                    <button onclick="saveBreakConfig()" class="flex-1 bg-blue-600 py-3 rounded-xl font-bold text-sm shadow-lg shadow-blue-900/20">Guardar</button>
+                    <button onclick="closeCommBreakConfig()" class="flex-1 bg-gray-800 py-3 rounded-xl font-bold text-sm">Sair</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- BASE DE DADOS DE SINOPSES ---
+        // Lista ordenada por especificidade (títulos mais longos primeiro para evitar falsos positivos)
+        const synopsisCatalog = [
+            { key: "ben 10: força alienígena", text: "Ben retorna mais maduro para novas ameaças." },
+            { key: "liga da justiça sem limites", text: "Expansão da Liga com dezenas de heróis." },
+            { key: "o incrível mundo de gumball", text: "Uma família excêntrica em uma cidade caótica." },
+            { key: "star wars: clone wars", text: "Conflitos da guerra dos clones em animação." },
+            { key: "space ghost coast to coast", text: "Talk show bizarro apresentado por um herói." },
+            { key: "superman: a série animada", text: "O herói kryptoniano protege a Terra." },
+            { key: "batman: a série animada", text: "O Cavaleiro das Trevas combate o crime em Gotham." },
+            { key: "coragem, o cão covarde", text: "Um cão medroso enfrenta horrores para salvar seus donos." },
+            { key: "scooby-doo: mistério s/a", text: "Mistérios com trama contínua e mais sombria." },
+            { key: "as meninas superpoderosas", text: "Três garotas com superpoderes defendem Townsville de vilões absurdos." },
+            { key: "hi hi puffy amiyumi", text: "Duas garotas formam uma banda em turnê." },
+            { key: "jovens titãs em ação", text: "Versão cômica e exagerada dos Titãs." },
+            { key: "scooby-doo, cadê você?", text: "Uma turma resolve mistérios envolvendo monstros falsos." },
+            { key: "cavaleiros do zodíaco", text: "Guerreiros protegem Atena usando armaduras sagradas." },
+            { key: "garfield e seus amigos", text: "Um gato preguiçoso odeia segundas-feiras." },
+            { key: "sheep in the big city", text: "Uma ovelha perdida tenta sobreviver na cidade." },
+            { key: "o laboratório de dexter", text: "Um garoto gênio esconde um laboratório secreto dos pais." },
+            { key: "what a cartoon! show", text: "Curtas experimentais que originaram séries famosas." },
+            { key: "mobile suit gundam", text: "Conflitos políticos em guerras espaciais." },
+            { key: "a vaca e o frango", text: "Dois irmãos vivem aventuras surreais com humor absurdo." },
+            { key: "hora de aventura", text: "Um garoto e seu cão mágico exploram um mundo pós-apocalíptico." },
+            { key: "pernalonga e patolino", text: "Clássicos curtas com humor físico e inteligente." },
+            { key: "apenas um show", text: "Dois amigos preguiçosos vivem situações absurdas." },
+            { key: "naruto shippuden", text: "Naruto adulto enfrenta ameaças globais." },
+            { key: "liga da justiça", text: "Heróis da DC unem forças para salvar o mundo." },
+            { key: "yu yu hakusho", text: "Um delinquente vira detetive espiritual." },
+            { key: "os substitutos", text: "Crianças trocam seus pais por versões melhores." },
+            { key: "eu sou o máximo", text: "Um herói exagerado resolve tudo com força bruta." },
+            { key: "mansão foster", text: "Um lar para amigos imaginários abandonados." },
+            { key: "os flintstones", text: "Uma família vive a vida moderna na Idade da Pedra." },
+            { key: "jovens titãs", text: "Jovens heróis equilibram batalhas e vida pessoal." },
+            { key: "harvey birdman", text: "Um advogado que defende personagens de desenhos." },
+            { key: "dragon ball gt", text: "Goku volta a ser criança em aventuras espaciais." },
+            { key: "dragon ball z", text: "Guerreiros defendem a Terra com batalhas épicas." },
+            { key: "duck dodgers", text: "Paródia espacial estrelada por Patolino." },
+            { key: "johnny bravo", text: "Um narcisista musculoso vive fracassando em conquistar mulheres." },
+            { key: "samurai jack", text: "Um samurai viaja no tempo tentando derrotar o vilão Aku." },
+            { key: "du, dudu e edu", text: "Três amigos tentam enriquecer com golpes mal-sucedidos." },
+            { key: "billy e mandy", text: "Duas crianças fazem amizade forçada com a Morte." },
+            { key: "mike, lu e og", text: "Três amigos vivem em uma ilha isolada." },
+            { key: "o pequeno urso", text: "Um urso aprende sobre o mundo com simplicidade." },
+            { key: "gundam wing", text: "Pilotos lutam em guerras com robôs gigantes." },
+            { key: "sailor moon", text: "Garotas mágicas defendem a Terra do mal." },
+            { key: "tenchi muyo!", text: "Um jovem envolve-se com princesas alienígenas." },
+            { key: "sealab 2021", text: "Comédia caótica em uma base submarina." },
+            { key: "os jetsons", text: "Uma família comum vivendo em um futuro tecnológico." },
+            { key: "blue dragon", text: "Jovens lutam com sombras mágicas." },
+            { key: "time squad", text: "Policiais do tempo corrigem falhas históricas." },
+            { key: "camp lazlo", text: "Um acampamento com animais antropomórficos." },
+            { key: "samurai x", text: "Um espadachim busca redenção após uma vida violenta." },
+            { key: "megas xlr", text: "Um jovem pilota um robô gigante para salvar o mundo." },
+            { key: "one piece", text: "Piratas buscam o maior tesouro do mundo." },
+            { key: "astro boy", text: "Um robô com sentimentos protege a humanidade." },
+            { key: "beyblade", text: "Batalhas intensas usando piões especiais." },
+            { key: "flapjack", text: "Um garoto busca aventuras marítimas exageradas." },
+            { key: "inuyasha", text: "Uma garota viaja ao Japão feudal cheio de demônios." },
+            { key: "clarence", text: "Um garoto otimista vive aventuras simples e humanas." },
+            { key: "hamtaro", text: "Hamsters vivem aventuras secretas longe dos humanos." },
+            { key: "chowder", text: "Um aprendiz de cozinheiro em um mundo surreal." },
+            { key: "toonami", text: "Bloco focado em ação, animes e ficção científica." },
+            { key: "bakugan", text: "Cartas se transformam em monstros de batalha." },
+            { key: "digimon", text: "Crianças e monstros digitais salvam dois mundos." },
+            { key: "pokémon", text: "Treinadores capturam criaturas para batalhar." },
+            { key: "popeye", text: "Um marinheiro ganha força ao comer espinafre." },
+            { key: "ben 10", text: "Um garoto usa um relógio alienígena para virar heróis." },
+            { key: "naruto", text: "Um ninja rejeitado busca reconhecimento e poder." },
+            { key: "zoids", text: "Guerras usando animais robóticos gigantes." },
+            { key: "tom e jerry", text: "Um gato e um rato em perseguições caóticas." }
+        ];
+
+        function getSynopsis(filename) {
+            const cleanName = filename.toLowerCase();
+            for (const item of synopsisCatalog) {
+                if (cleanName.includes(item.key.toLowerCase())) {
+                    return item.text;
+                }
+            }
+            return "Aproveite a programação selecionada para você.";
+        }
+
+        // --- Globais ---
+        const video = document.getElementById('mainVideo');
+        const videoContainer = document.getElementById('videoContainer');
+        const mainListEl = document.getElementById('mainPlaylist');
+        const commListEl = document.getElementById('commPlaylist');
+        const progBar = document.getElementById('progressBar');
+        const volBar = document.getElementById('volBar');
+        const timeDisp = document.getElementById('timeDisplay');
+        const playIcon = document.getElementById('playIcon');
+        const videoTitle = document.getElementById('videoTitle');
+        const videoDesc = document.getElementById('videoDesc'); // Referência para a descrição
+        const typeBadge = document.getElementById('typeBadge');
+        const timerContainer = document.getElementById('timerContainer');
+        const remainingTimeEl = document.getElementById('remainingTime');
+        const tvLogoOverlay = document.getElementById('tvLogoOverlay');
+        const pipBtn = document.getElementById('pipBtn');
+        const introIndicator = document.getElementById('introIndicator');
+
+        let mainPlaylist = [];
+        let commercialPlaylist = [];
+        let currentMainIndex = -1;
+        let currentCommIndex = -1;
+        
+        let isPlayingCommercial = false;
+        let isPlayingIntro = false;
+        let isPlayingBreakClip = false; 
+        
+        let commercialCounter = 0;
+        let activeManagerType = null;
+        let mainShuffleEnabled = false;
+        let commShuffleEnabled = false;
+        let breakEnabled = false;
+        let breakTimeMinutes = 10;
+        let hasTriggeredBreakForCurrentVideo = false;
+        let resumeTime = 0;
+        let logoEnabled = false;
+        let logoConfig = { src: "", size: 15, opacity: 100, top: 20, left: 80 };
+        
+        let targetIntroIndex = -1;
+        let targetBreakIndex = -1;
+
+        // --- NOVA LÓGICA DE PASTAS (Folder Settings) ---
+        // Estrutura: { "NomePasta": { count: 1, shuffle: false } }
+        let folderSettings = {}; 
+        let folderSequenceQueue = []; // Fila de reprodução forçada (índices)
+
+        // Estados das pastas (expandido/recolhido)
+        let folderStates = {
+            main: {},
+            commercial: {},
+            grade: {} 
+        };
+
+        // --- Persistência (Local Storage) ---
+        function saveAllToLocalStorage() {
+            const data = {
+                mainPlaylist: mainPlaylist.map(v => ({ 
+                    ...v, 
+                    url: null, 
+                    intro: v.intro ? { ...v.intro, url: null } : null,
+                    breakClip: v.breakClip ? { ...v.breakClip, url: null } : null 
+                })),
+                commercialPlaylist: commercialPlaylist.map(v => ({ ...v, url: null })),
+                mainShuffleEnabled,
+                commShuffleEnabled,
+                breakEnabled,
+                breakTimeMinutes,
+                logoEnabled,
+                logoConfig: { ...logoConfig, src: logoConfig.src.startsWith('blob:') ? "" : logoConfig.src },
+                folderStates,
+                folderSettings // Salva configurações das pastas
+            };
+            localStorage.setItem('feliflix_pro_data', JSON.stringify(data));
+            toggleSettingsMenu();
+            showMessage("Dados salvos no cache do navegador!");
+        }
+
+        function loadFromLocalStorage() {
+            const raw = localStorage.getItem('feliflix_pro_data');
+            if (!raw) return;
+            try {
+                const data = JSON.parse(raw);
+                mainPlaylist = data.mainPlaylist || [];
+                commercialPlaylist = data.commercialPlaylist || [];
+                mainShuffleEnabled = !!data.mainShuffleEnabled;
+                commShuffleEnabled = !!data.commShuffleEnabled;
+                breakEnabled = !!data.breakEnabled;
+                breakTimeMinutes = data.breakTimeMinutes || 10;
+                logoEnabled = !!data.logoEnabled;
+                logoConfig = data.logoConfig || logoConfig;
+                folderStates = data.folderStates || folderStates;
+                folderSettings = data.folderSettings || {}; // Carrega configurações das pastas
+
+                renderLists();
+                updateBreakUI();
+                updateLogoModalUI();
+                if (logoEnabled && logoConfig.src) applyLogoSettings();
+            } catch (e) { console.error("Erro ao carregar dados salvos", e); }
+        }
+
+        function showMessage(msg) {
+            const box = document.createElement('div');
+            box.className = "fixed bottom-10 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-6 py-3 rounded-full font-bold text-sm shadow-2xl z-[100] animate-bounce";
+            box.innerText = msg;
+            document.body.appendChild(box);
+            setTimeout(() => box.remove(), 3000);
+        }
+
+        // --- Menu de Engrenagem ---
+        function toggleSettingsMenu() {
+            document.getElementById('settingsMenu').classList.toggle('hidden');
+        }
+
+        // --- Adicionar Vídeos ---
+        function addVideos(event, type) {
+            const files = Array.from(event.target.files);
+            if (files.length === 0) return;
+
+            const videoFiles = files.filter(file => file.type.startsWith('video/'));
+            if (videoFiles.length === 0) return;
+
+            videoFiles.sort((a, b) => (a.webkitRelativePath || a.name).localeCompare(b.webkitRelativePath || b.name));
+
+            videoFiles.forEach(file => {
+                let folderName = null;
+                if (file.webkitRelativePath) {
+                    const parts = file.webkitRelativePath.split('/');
+                    if (parts.length > 1) folderName = parts[0];
+                }
+
+                const item = {
+                    id: Math.random().toString(36).substr(2, 9),
+                    title: file.name,
+                    url: URL.createObjectURL(file),
+                    folder: folderName,
+                    intro: null,
+                    breakClip: null 
+                };
+
+                if (type === 'main') mainPlaylist.push(item);
+                else commercialPlaylist.push(item);
+            });
+
+            renderLists();
+            if (activeManagerType) updateManagerUI();
+            if (!document.getElementById('gradeModal').classList.contains('hidden')) renderGradeList();
+            
+            if (type === 'main' && currentMainIndex === -1 && !isPlayingCommercial) playNextMain();
+            event.target.value = ""; 
+        }
+
+        // --- Renderizar Listas Laterais ---
+        function renderLists() {
+            renderPlaylistColumn(mainListEl, mainPlaylist, 'main');
+            renderPlaylistColumn(commListEl, commercialPlaylist, 'commercial');
+        }
+
+        function renderPlaylistColumn(element, playlist, type) {
+            if (playlist.length === 0) {
+                element.innerHTML = `<div class="text-center py-10 text-gray-600 text-xs">Sem conteúdo</div>`;
+                return;
+            }
+
+            let html = '';
+            let lastFolder = null;
+            let currentGroupHtml = '';
+            let inGroup = false;
+
+            const closeGroup = () => {
+                if (inGroup) {
+                    const isCollapsed = folderStates[type][lastFolder] === true;
+                    html += `
+                        <div class="mb-2">
+                            <div onclick="toggleFolder('${type}', '${lastFolder}')" class="flex items-center gap-2 p-2 rounded-lg cursor-pointer bg-gray-800/50 hover:bg-gray-800 transition select-none sticky top-0 z-10">
+                                <i class="fas fa-folder${isCollapsed ? '' : '-open'} text-blue-400 text-[10px]"></i>
+                                <span class="text-[10px] font-bold text-gray-300 flex-1 truncate uppercase tracking-widest">${lastFolder}</span>
+                                <i class="fas fa-chevron-${isCollapsed ? 'down' : 'up'} text-[8px] text-gray-500"></i>
+                            </div>
+                            <div class="folder-content ${isCollapsed ? 'folder-collapsed' : 'folder-expanded'} pl-2 border-l border-gray-800 ml-2 mt-1 space-y-1">
+                                ${currentGroupHtml}
+                            </div>
+                        </div>`;
+                    currentGroupHtml = '';
+                    inGroup = false;
+                }
+            };
+
+            playlist.forEach((item, index) => {
+                const isActive = (type === 'main' && !isPlayingCommercial && currentMainIndex === index) ||
+                                 (type === 'commercial' && isPlayingCommercial && currentCommIndex === index);
+                
+                const itemHtml = `
+                    <div onclick="playSelected('${type}', ${index})" class="flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-gray-800 transition ${isActive ? 'active-track' : ''} group">
+                        <div class="w-5 h-5 ${type === 'main' ? 'bg-blue-900/30 text-blue-500' : 'bg-amber-900/30 text-amber-500'} rounded flex items-center justify-center text-[9px] font-bold">
+                           ${isActive ? '<i class="fas fa-play"></i>' : (index + 1)}
+                        </div>
+                        <div class="flex-1 overflow-hidden">
+                            <div class="truncate text-[11px] font-medium ${isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-300'}">${item.title}</div>
+                            ${item.intro && type === 'main' ? '<div class="text-[8px] text-purple-400 mt-0.5 font-bold uppercase"><i class="fas fa-bullhorn mr-1"></i>Chamada</div>' : ''}
+                        </div>
+                    </div>`;
+
+                if (item.folder) {
+                    if (item.folder !== lastFolder) {
+                        closeGroup();
+                        lastFolder = item.folder;
+                        inGroup = true;
+                    }
+                    currentGroupHtml += itemHtml;
+                } else {
+                    closeGroup();
+                    lastFolder = null;
+                    html += `<div class="mb-1">${itemHtml}</div>`;
+                }
+            });
+            closeGroup();
+            element.innerHTML = html;
+        }
+
+        function toggleFolder(type, folderName) {
+            folderStates[type][folderName] = !folderStates[type][folderName];
+            renderLists();
+        }
+
+        // --- GRADE DE PROGRAMAÇÃO (PASTAS) ---
+        function openGradeModal() {
+    		document.getElementById('gradeModal').classList.remove('hidden');
+    		document.querySelector('.settings-btn').classList.add('hidden'); 
+    		renderGradeList();
+	    }
+
+        function closeGradeModal() {
+            document.getElementById('gradeModal').classList.add('hidden');
+            document.querySelector('.settings-btn').classList.remove('hidden');
+        }
+
+        function toggleGradeFolder(folderName) {
+            folderStates.grade[folderName] = !folderStates.grade[folderName];
+            renderGradeList();
+        }
+
+        function expandAllGradeFolders(expanded) {
+            const folders = [...new Set(mainPlaylist.filter(i => i.folder).map(i => i.folder))];
+            folders.forEach(f => folderStates.grade[f] = !expanded);
+            renderGradeList();
+        }
+
+        // --- GESTÃO DE PASTAS (Novo) ---
+        function openFolderSettings() {
+            // Fecha grade? Não, pode ficar por cima.
+            const folders = [...new Set(mainPlaylist.filter(i => i.folder).map(i => i.folder))].sort();
+            const listContainer = document.getElementById('folderSettingsList');
+            
+            if (folders.length === 0) {
+                listContainer.innerHTML = '<div class="text-center text-gray-500 py-4">Nenhuma pasta identificada.</div>';
+            } else {
+                listContainer.innerHTML = folders.map(folder => {
+                    // Default settings if not exist
+                    if (!folderSettings[folder]) folderSettings[folder] = { count: 1, shuffle: false };
+                    const s = folderSettings[folder];
+                    
+                    return `
+                    <div class="bg-gray-800 rounded-xl p-4 border border-gray-700 flex items-center justify-between gap-4">
+                        <div class="flex items-center gap-3 flex-1 overflow-hidden">
+                            <div class="w-10 h-10 bg-blue-900/30 rounded-lg flex items-center justify-center border border-blue-500/30">
+                                <i class="fas fa-folder text-blue-400"></i>
+                            </div>
+                            <div class="truncate">
+                                <h4 class="font-bold text-sm text-gray-200 truncate">${folder}</h4>
+                                <p class="text-[10px] text-gray-500 uppercase font-bold">Configuração da Pasta</p>
+                            </div>
+                        </div>
+                        
+                        <div class="flex items-center gap-6">
+                            <div class="text-right">
+                                <label class="block text-[9px] font-bold text-gray-400 uppercase mb-1">Vídeos em Sequência</label>
+                                <input type="number" min="1" max="50" value="${s.count}" 
+                                    onchange="updateFolderSetting('${folder}', 'count', this.value)"
+                                    class="w-20 bg-gray-900 border border-gray-600 rounded p-1 text-center font-bold text-sm focus:border-blue-500 outline-none">
+                            </div>
+                            
+                            <div class="text-right">
+                                <label class="block text-[9px] font-bold text-gray-400 uppercase mb-1">Ordem</label>
+                                <button onclick="toggleFolderShuffle('${folder}')" 
+                                    class="w-24 py-1.5 rounded border text-xs font-bold transition ${s.shuffle ? 'bg-purple-600 border-purple-500 text-white' : 'bg-gray-700 border-gray-600 text-gray-400'}">
+                                    ${s.shuffle ? '<i class="fas fa-random mr-1"></i> Aleatório' : '<i class="fas fa-sort-numeric-down mr-1"></i> Padrão'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    `;
+                }).join('');
+            }
+            
+            document.getElementById('folderConfigModal').classList.remove('hidden');
+        }
+
+        function updateFolderSetting(folder, key, value) {
+            if (!folderSettings[folder]) folderSettings[folder] = { count: 1, shuffle: false };
+            folderSettings[folder][key] = parseInt(value);
+        }
+
+        function toggleFolderShuffle(folder) {
+            if (!folderSettings[folder]) folderSettings[folder] = { count: 1, shuffle: false };
+            folderSettings[folder].shuffle = !folderSettings[folder].shuffle;
+            openFolderSettings(); // Re-render to update button style
+        }
+
+        function closeFolderSettings() {
+            document.getElementById('folderConfigModal').classList.add('hidden');
+        }
+
+        function generateFolderQueue(folder, settings) {
+            // Pega todos os índices desta pasta
+            const folderIndices = mainPlaylist
+                .map((item, index) => ({ item, index }))
+                .filter(obj => obj.item.folder === folder)
+                .map(obj => obj.index);
+            
+            if (folderIndices.length <= 1) return; // Nada para enfileirar se só tem 1 vídeo
+
+            // Quantos a adicionar? (Total desejado - 1 que já foi escolhido)
+            let countToAdd = settings.count - 1;
+            if (countToAdd <= 0) return;
+
+            // Remove o índice atual da lista de candidatos se possível (para aleatório)
+            // Para sequencial, precisamos achar onde estamos
+            let currentIndexInFolder = folderIndices.indexOf(currentMainIndex);
+            
+            if (settings.shuffle) {
+                // Modo Aleatório: Pega candidatos (pode excluir o atual para não repetir imediatamente)
+                let candidates = folderIndices.filter(i => i !== currentMainIndex);
+                if (candidates.length === 0) candidates = folderIndices; // Fallback
+
+                for (let i = 0; i < countToAdd; i++) {
+                    const rand = Math.floor(Math.random() * candidates.length);
+                    folderSequenceQueue.push(candidates[rand]);
+                    // Opcional: remover candidato usado se não quisermos repetição dentro do bloco
+                    // candidates.splice(rand, 1);
+                    // if (candidates.length === 0) candidates = folderIndices; // Reset se acabar
+                }
+            } else {
+                // Modo Padrão (Sequencial): Respeita a ordem dos índices
+                for (let i = 0; i < countToAdd; i++) {
+                    currentIndexInFolder++;
+                    if (currentIndexInFolder >= folderIndices.length) currentIndexInFolder = 0; // Loop na pasta
+                    folderSequenceQueue.push(folderIndices[currentIndexInFolder]);
+                }
+            }
+            console.log("Queue gerada para " + folder + ":", folderSequenceQueue);
+        }
+
+        // --- Renderização da Grade ---
+        function renderGradeList() {
+            const container = document.getElementById('gradeListContent');
+            if (mainPlaylist.length === 0) {
+                container.innerHTML = '<div class="p-8 text-center text-gray-500">Nenhum programa na lista principal.</div>';
+                return;
+            }
+
+            let html = '';
+            let lastFolder = null;
+            let currentGroupHtml = '';
+            let inGroup = false;
+
+            const closeGroupGrade = () => {
+                if (inGroup) {
+                    const isCollapsed = folderStates.grade[lastFolder] === true;
+                    // Busca settings para mostrar info
+                    const s = folderSettings[lastFolder] || { count: 1, shuffle: false };
+                    
+                    html += `
+                        <div class="bg-gray-900/50">
+                            <div onclick="toggleGradeFolder('${lastFolder}')" class="flex items-center gap-3 p-4 cursor-pointer hover:bg-gray-800/80 border-b border-gray-800 transition select-none">
+                                <i class="fas fa-folder${isCollapsed ? '' : '-open'} text-indigo-400"></i>
+                                <div class="flex-1 flex flex-col">
+                                    <span class="font-bold text-sm text-gray-200 uppercase tracking-widest">${lastFolder}</span>
+                                    <div class="flex gap-2 mt-1">
+                                         <span class="text-[9px] bg-gray-800 px-1.5 rounded text-gray-400 border border-gray-700">SEQ: ${s.count}</span>
+                                         <span class="text-[9px] bg-gray-800 px-1.5 rounded text-gray-400 border border-gray-700">${s.shuffle ? 'RND' : 'STD'}</span>
+                                    </div>
+                                </div>
+                                <span class="text-[10px] text-gray-500 font-mono">${mainPlaylist.filter(i => i.folder === lastFolder).length} VÍDEOS</span>
+                                <i class="fas fa-chevron-${isCollapsed ? 'down' : 'up'} text-xs text-gray-600 ml-4"></i>
+                            </div>
+                            <div class="${isCollapsed ? 'hidden' : 'block'}">
+                                ${currentGroupHtml}
+                            </div>
+                        </div>`;
+                    currentGroupHtml = '';
+                    inGroup = false;
+                }
+            };
+
+            mainPlaylist.forEach((item, index) => {
+                const hasIntro = !!item.intro;
+                const hasBreak = !!item.breakClip; 
+
+                const rowHtml = `
+                <div class="grid grid-cols-12 gap-2 p-3 items-center grade-row transition border-b border-gray-800/30 bg-gray-950/20">
+                    <div class="col-span-1 text-center font-mono text-gray-500 text-[10px]">${index + 1}</div>
+                    <div class="col-span-5 overflow-hidden">
+                        <div class="font-bold text-xs text-white truncate">${item.title}</div>
+                    </div>
+                    <!-- Coluna Intro -->
+                    <div class="col-span-3 cursor-pointer" onclick="document.getElementById('introFileInput').click(); targetIntroIndex = ${index}">
+                        ${hasIntro 
+                            ? `<div class="bg-purple-900/20 border border-purple-700/30 rounded px-2 py-1 flex items-center justify-between group hover:border-purple-500 transition">
+                                 <span class="text-[10px] text-purple-300 truncate"><i class="fas fa-bullhorn mr-1"></i> ${item.intro.title}</span>
+                                 <i class="fas fa-edit text-purple-400 opacity-0 group-hover:opacity-100 text-[10px]"></i>
+                               </div>`
+                            : `<div class="border border-dashed border-gray-800 rounded px-2 py-1 text-gray-600 text-[10px] hover:border-gray-600 hover:text-gray-400 transition flex items-center gap-2">
+                                 <i class="fas fa-plus"></i> Add Chamada
+                               </div>`
+                        }
+                    </div>
+                    <!-- Coluna Vinheta -->
+                    <div class="col-span-2 cursor-pointer" onclick="document.getElementById('breakFileInput').click(); targetBreakIndex = ${index}">
+                         ${hasBreak 
+                            ? `<div class="bg-amber-900/20 border border-amber-700/30 rounded px-2 py-1 flex items-center justify-between group hover:border-amber-500 transition">
+                                 <span class="text-[10px] text-amber-300 truncate"><i class="fas fa-pause-circle mr-1"></i> ${item.breakClip.title}</span>
+                                 <i class="fas fa-edit text-amber-400 opacity-0 group-hover:opacity-100 text-[10px]"></i>
+                               </div>`
+                            : `<div class="border border-dashed border-gray-800 rounded px-2 py-1 text-gray-600 text-[10px] hover:border-gray-600 hover:text-gray-400 transition flex items-center gap-2">
+                                 <i class="fas fa-plus"></i> Pausa
+                               </div>`
+                        }
+                    </div>
+                    <div class="col-span-1 flex justify-center">
+                        <button onclick="removeItem('main', ${index})" class="text-gray-600 hover:text-red-500 p-1.5 transition"><i class="fas fa-times text-xs"></i></button>
+                    </div>
+                </div>`;
+
+                if (item.folder) {
+                    if (item.folder !== lastFolder) {
+                        closeGroupGrade();
+                        lastFolder = item.folder;
+                        inGroup = true;
+                    }
+                    currentGroupHtml += rowHtml;
+                } else {
+                    closeGroupGrade();
+                    lastFolder = null;
+                    html += rowHtml;
+                }
+            });
+            closeGroupGrade();
+            container.innerHTML = html;
+        }
+
+        // --- Gestão Simples ---
+        function openManager(type) {
+            activeManagerType = type;
+            const modal = document.getElementById('playlistModal');
+            document.getElementById('modalTitle').innerText = type === 'main' ? 'Programação Principal' : 'Lista de Comerciais';
+            document.getElementById('modalSubtitle').innerText = type === 'main' ? 'Programação' : 'Ads & Breaks';
+            modal.classList.remove('hidden');
+            updateManagerUI();
+        }
+        function closeManager() { document.getElementById('playlistModal').classList.add('hidden'); activeManagerType = null; }
+        
+        function updateManagerUI() {
+            const list = activeManagerType === 'main' ? mainPlaylist : commercialPlaylist;
+            const isShuffle = activeManagerType === 'main' ? mainShuffleEnabled : commShuffleEnabled;
+            const shuffleBtn = document.getElementById('toggleShuffleBtn');
+            const statusSpan = shuffleBtn.querySelector('.shuffle-status');
+            statusSpan.innerText = isShuffle ? "ON" : "OFF";
+            shuffleBtn.className = isShuffle ? "bg-purple-600 text-white border border-purple-400 px-3 py-1.5 rounded-lg text-xs font-bold transition" : "bg-gray-800 text-gray-400 border border-gray-700 px-3 py-1.5 rounded-lg text-xs font-bold transition";
+
+            const container = document.getElementById('modalContent');
+            if (list.length === 0) { container.innerHTML = `<div class="text-center py-20 text-gray-600">Esta playlist está vazia.</div>`; return; }
+
+            container.innerHTML = list.map((item, i) => `
+                <div class="flex items-center gap-4 bg-gray-900 p-3 rounded-xl border border-gray-800 group hover:border-gray-600 transition">
+                    <div class="w-8 h-8 bg-gray-800 rounded flex items-center justify-center font-bold text-gray-500 text-[10px]">${i+1}</div>
+                    <div class="flex-1 overflow-hidden">
+                        <div class="truncate font-bold text-xs text-gray-200">${item.title}</div>
+                        ${item.folder ? `<div class="text-[9px] text-blue-400 font-bold uppercase"><i class="fas fa-folder-open mr-1"></i>${item.folder}</div>` : ''}
+                    </div>
+                    <button onclick="removeItem('${activeManagerType}', ${i})" class="text-gray-600 hover:text-red-500 p-2 transition"><i class="fas fa-times"></i></button>
+                </div>`).join('');
+        }
+        
+        function removeItem(type, index) {
+            const list = type === 'main' ? mainPlaylist : commercialPlaylist;
+            list.splice(index, 1);
+            if (type === 'main') {
+                if (currentMainIndex === index) playNextMain();
+                else if (currentMainIndex > index) currentMainIndex--;
+                if(!document.getElementById('gradeModal').classList.contains('hidden')) renderGradeList();
+            } else {
+                if (currentCommIndex === index) currentCommIndex = -1;
+                else if (currentCommIndex > index) currentCommIndex--;
+            }
+            renderLists();
+            if(activeManagerType) updateManagerUI();
+        }
+        
+        function clearCurrentPlaylist() {
+             if (activeManagerType === 'main') { mainPlaylist = []; currentMainIndex = -1; resetPlayer(); } 
+             else { commercialPlaylist = []; currentCommIndex = -1; }
+             renderLists(); updateManagerUI();
+             if(!document.getElementById('gradeModal').classList.contains('hidden')) renderGradeList();
+        }
+        
+        function togglePlaylistShuffle() {
+            if (activeManagerType === 'main') mainShuffleEnabled = !mainShuffleEnabled;
+            else commShuffleEnabled = !commShuffleEnabled;
+            updateManagerUI();
+        }
+
+        // --- Reprodução ---
+        function playNextMain() {
+            if (mainPlaylist.length === 0) { resetPlayer(); return; }
+            commercialCounter = 0;
+            hasTriggeredBreakForCurrentVideo = false;
+            resumeTime = 0;
+            isPlayingIntro = false;
+            isPlayingBreakClip = false; 
+            
+            // --- NOVA LÓGICA DE FILA (QUEUE) ---
+            if (folderSequenceQueue.length > 0) {
+                // Remove o próximo da fila e toca
+                currentMainIndex = folderSequenceQueue.shift();
+                checkAndPlayMain(currentMainIndex);
+                return;
+            }
+            
+            // Seleção padrão (Aleatório Global ou Sequencial Global)
+            if (mainShuffleEnabled && mainPlaylist.length > 1) {
+                let nextIdx; do { nextIdx = Math.floor(Math.random() * mainPlaylist.length); } while (nextIdx === currentMainIndex);
+                currentMainIndex = nextIdx;
+            } else {
+                currentMainIndex++;
+                if (currentMainIndex >= mainPlaylist.length) currentMainIndex = 0;
+            }
+
+            // --- GATILHO DE LÓGICA DE PASTA ---
+            // Acabamos de escolher 'currentMainIndex'. Verifica se ele pertence a uma pasta com regras.
+            const item = mainPlaylist[currentMainIndex];
+            if (item.folder && folderSettings[item.folder]) {
+                const s = folderSettings[item.folder];
+                if (s.count > 1) {
+                    generateFolderQueue(item.folder, s);
+                }
+            }
+
+            checkAndPlayMain(currentMainIndex);
+        }
+
+        function playSelected(type, idx) {
+            if (type === 'main') playSelectedMain(idx);
+            else { currentCommIndex = idx; startPlayback(commercialPlaylist[idx], true); }
+        }
+
+        function playSelectedMain(idx) {
+            // Limpa fila anterior se o usuário forçar uma seleção manual
+            folderSequenceQueue = [];
+            isPlayingCommercial = false; commercialCounter = 0; hasTriggeredBreakForCurrentVideo = false; resumeTime = 0; currentMainIndex = idx;
+            
+            // Verifica regras da pasta do vídeo selecionado manualmente
+            const item = mainPlaylist[idx];
+            if (item.folder && folderSettings[item.folder]) {
+                const s = folderSettings[item.folder];
+                if (s.count > 1) {
+                    generateFolderQueue(item.folder, s);
+                }
+            }
+
+            checkAndPlayMain(idx);
+        }
+
+        function checkAndPlayMain(index) {
+            const item = mainPlaylist[index];
+            if (!item.url) { showMessage("Arquivo não vinculado. Recarregue os vídeos."); return; }
+            if (item.intro) {
+                isPlayingIntro = true;
+                startPlayback(item.intro, false, 0, true);
+            } else {
+                isPlayingIntro = false;
+                startPlayback(item, false);
+            }
+        }
+
+        function playCommercialSequence() {
+            const target = parseInt(document.getElementById('commCountInput').value) || 1;
+            if (commercialPlaylist.length === 0 || commercialCounter >= target) {
+                // Fim dos comerciais
+                if (resumeTime > 0) {
+                    startPlayback(mainPlaylist[currentMainIndex], false, resumeTime);
+                    resumeTime = 0;
+                } else playNextMain();
+                return;
+            }
+            commercialCounter++;
+            if (commShuffleEnabled && commercialPlaylist.length > 1) {
+                let nextIdx; do { nextIdx = Math.floor(Math.random() * commercialPlaylist.length); } while (nextIdx === currentCommIndex);
+                currentCommIndex = nextIdx;
+            } else {
+                currentCommIndex++;
+                if (currentCommIndex >= commercialPlaylist.length) currentCommIndex = 0;
+            }
+            startPlayback(commercialPlaylist[currentCommIndex], true);
+        }
+
+        function startPlayback(item, isComm, startTime = 0, isSpecialContent = false) {
+            isPlayingCommercial = isComm;
+            video.src = item.url;
+            videoTitle.innerText = item.title;
+            timerContainer.classList.toggle('hidden', isComm || isSpecialContent);
+            
+            // --- LÓGICA DE SINOPSE ATUALIZADA ---
+            if (isComm || isSpecialContent) {
+                if(isComm) videoDesc.innerText = "Intervalo Comercial";
+                else if(isSpecialContent) videoDesc.innerText = "Programação Especial";
+                else videoDesc.innerText = "";
+            } else {
+                // Gera a sinopse baseada no título
+                videoDesc.innerText = getSynopsis(item.title);
+            }
+
+            if (isSpecialContent) {
+                introIndicator.classList.remove('hidden');
+                if (isPlayingBreakClip) {
+                     introIndicator.innerText = "VINHETA";
+                     introIndicator.className = "inline-block bg-amber-600 text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase mb-1";
+                } else {
+                     introIndicator.innerText = "CHAMADA A SEGUIR: " + mainPlaylist[currentMainIndex].title;
+                     introIndicator.className = "inline-block bg-purple-600 text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase mb-1";
+                }
+                typeBadge.className = "hidden";
+                tvLogoOverlay.style.opacity = "0";
+            } else {
+                introIndicator.classList.add('hidden');
+                if (isComm) {
+                    typeBadge.className = "hidden";
+                    tvLogoOverlay.style.opacity = "0";
+                } else {
+                    typeBadge.className = "hidden";
+                    if(logoEnabled) tvLogoOverlay.style.opacity = (logoConfig.opacity / 100).toString();
+                }
+            }
+            renderLists(); video.load();
+            if (startTime > 0) video.currentTime = startTime;
+            video.play().catch(() => {});
+        }
+
+        function resetPlayer() { 
+            video.src = ""; 
+            videoTitle.innerText = "Prepare a sua emissão"; 
+            videoDesc.innerText = "Configure a sua playlist e as regras de exibição."; // Reset da descrição
+            timerContainer.classList.add('hidden'); 
+            introIndicator.classList.add('hidden'); 
+        }
+
+        // --- Eventos ---
+        video.ontimeupdate = () => {
+            if (!video.duration) return;
+            progBar.value = (video.currentTime / video.duration) * 100;
+            timeDisp.innerText = `${formatTime(video.currentTime)} / ${formatTime(video.duration)}`;
+            
+            if (!isPlayingCommercial && !isPlayingIntro && !isPlayingBreakClip) {
+                remainingTimeEl.innerText = formatTimeFull(video.duration - video.currentTime);
+                
+                if (breakEnabled && !hasTriggeredBreakForCurrentVideo && video.currentTime >= (breakTimeMinutes * 60)) {
+                    hasTriggeredBreakForCurrentVideo = true;
+                    resumeTime = video.currentTime;
+                    
+                    const currentVid = mainPlaylist[currentMainIndex];
+                    if (currentVid.breakClip) {
+                        isPlayingBreakClip = true;
+                        startPlayback(currentVid.breakClip, false, 0, true); 
+                    } else {
+                        commercialCounter = 0;
+                        playCommercialSequence();
+                    }
+                }
+            }
+        };
+
+        video.onended = () => {
+            if (isPlayingIntro) { 
+                isPlayingIntro = false; 
+                startPlayback(mainPlaylist[currentMainIndex], false); 
+                return; 
+            }
+            
+            if (isPlayingBreakClip) {
+                isPlayingBreakClip = false;
+                commercialCounter = 0;
+                playCommercialSequence();
+                return;
+            }
+
+            if (!isPlayingCommercial) {
+                playCommercialSequence();
+            } else {
+                const target = parseInt(document.getElementById('commCountInput').value) || 1;
+                if (commercialCounter < target) playCommercialSequence();
+                else if (resumeTime > 0) { 
+                    startPlayback(mainPlaylist[currentMainIndex], false, resumeTime); 
+                    resumeTime = 0; 
+                }
+                else playNextMain();
+            }
+        };
+
+        function handleIntroSelected(event) {
+            const file = event.target.files[0];
+            if (file && targetIntroIndex > -1) {
+                mainPlaylist[targetIntroIndex].intro = { title: file.name, url: URL.createObjectURL(file) };
+                renderGradeList(); renderLists();
+            }
+            event.target.value = "";
+        }
+
+        function handleBreakSelected(event) {
+            const file = event.target.files[0];
+            if (file && targetBreakIndex > -1) {
+                mainPlaylist[targetBreakIndex].breakClip = { title: file.name, url: URL.createObjectURL(file) };
+                renderGradeList();
+            }
+            event.target.value = "";
+        }
+
+        // --- Logo Drag & Config ---
+        let isDragging = false; let startX, startY;
+        tvLogoOverlay.onmousedown = (e) => { if (!logoEnabled) return; isDragging = true; tvLogoOverlay.classList.add('dragging'); startX = e.clientX - tvLogoOverlay.offsetLeft; startY = e.clientY - tvLogoOverlay.offsetTop; e.preventDefault(); };
+        document.onmousemove = (e) => {
+            if (!isDragging) return;
+            const rect = videoContainer.getBoundingClientRect();
+            let newX = e.clientX - startX; let newY = e.clientY - startY;
+            newX = Math.max(0, Math.min(newX, rect.width - tvLogoOverlay.offsetWidth));
+            newY = Math.max(0, Math.min(newY, rect.height - tvLogoOverlay.offsetHeight));
+            logoConfig.left = (newX / rect.width) * 100; logoConfig.top = (newY / rect.height) * 100;
+            tvLogoOverlay.style.left = logoConfig.left + "%"; tvLogoOverlay.style.top = logoConfig.top + "%";
+        };
+        document.onmouseup = () => { if (isDragging) { isDragging = false; tvLogoOverlay.classList.remove('dragging'); } };
+        function openLogoConfig() { closeRulesModal(); document.getElementById('logoConfigModal').classList.remove('hidden'); updateLogoModalUI(); }
+        function closeLogoConfig() { document.getElementById('logoConfigModal').classList.add('hidden'); }
+        function handleLogoUpload(e) { const file = e.target.files[0]; if (file) document.getElementById('logoUrlInput').value = URL.createObjectURL(file); }
+        function toggleLogoVisibility() { logoEnabled = !logoEnabled; updateLogoModalUI(); }
+        function updateLogoModalUI() {
+            const btn = document.getElementById('logoStatusBtn');
+            btn.innerText = logoEnabled ? "ATIVADO" : "DESATIVADO";
+            btn.className = logoEnabled ? "w-full py-2 rounded bg-blue-600 border border-blue-500 font-bold text-sm transition" : "w-full py-2 rounded bg-gray-800 border border-gray-700 font-bold text-sm transition";
+        }
+        function applyLogoSettings() {
+            const url = document.getElementById('logoUrlInput').value;
+            if (url) {
+                logoConfig.src = url; logoConfig.size = document.getElementById('logoSizeInput').value; logoConfig.opacity = document.getElementById('logoOpacityInput').value;
+                tvLogoOverlay.src = logoConfig.src; tvLogoOverlay.style.width = logoConfig.size + "%"; tvLogoOverlay.style.opacity = (logoConfig.opacity / 100).toString();
+                tvLogoOverlay.style.left = logoConfig.left + "%"; tvLogoOverlay.style.top = logoConfig.top + "%";
+                if (logoEnabled && !isPlayingCommercial && !isPlayingIntro && !isPlayingBreakClip) tvLogoOverlay.classList.remove('hidden'); else tvLogoOverlay.classList.add('hidden');
+            } else if (!logoEnabled) tvLogoOverlay.classList.add('hidden');
+            closeLogoConfig();
+        }
+
+        // --- Break Config ---
+        function openRulesModal() { document.getElementById('rulesModal').classList.remove('hidden'); }
+        function closeRulesModal() { document.getElementById('rulesModal').classList.add('hidden'); }
+        function openCommercialBreakConfig() { closeRulesModal(); document.getElementById('commBreakConfigModal').classList.remove('hidden'); updateBreakUI(); }
+        function closeCommBreakConfig() { document.getElementById('commBreakConfigModal').classList.add('hidden'); }
+        function toggleCommBreak() { breakEnabled = !breakEnabled; updateBreakUI(); }
+        function updateBreakUI() {
+            const btn = document.getElementById('toggleBreakBtn');
+            btn.innerText = breakEnabled ? "ATIVADO" : "DESATIVADO";
+            btn.className = breakEnabled ? "w-full py-3 rounded-xl font-bold text-sm transition bg-amber-600 text-white" : "w-full py-3 rounded-xl font-bold text-sm transition bg-gray-800 text-gray-500";
+            document.getElementById('breakSettings').style.opacity = breakEnabled ? "1" : "0.5";
+            document.getElementById('breakSettings').style.pointerEvents = breakEnabled ? "auto" : "none";
+        }
+        function saveBreakConfig() { breakTimeMinutes = document.getElementById('breakTimeInput').value; closeCommBreakConfig(); }
+        
+        // --- Controles de Vídeo ---
+        function togglePlay() { if (video.src) video.paused ? video.play() : video.pause(); }
+        function toggleMute() { video.muted = !video.muted; document.getElementById('volIcon').className = video.muted ? "fas fa-volume-mute text-red-500" : "fas fa-volume-up"; }
+        function toggleFullscreen() { if (!document.fullscreenElement) videoContainer.requestFullscreen(); else document.exitFullscreen(); }
+        async function togglePiP() { try { if (video !== document.pictureInPictureElement) await video.requestPictureInPicture(); else await document.exitPictureInPicture(); } catch (e) {} }
+        video.onplay = () => playIcon.className = "fas fa-pause";
+        video.onpause = () => playIcon.className = "fas fa-play";
+        volBar.oninput = () => video.volume = volBar.value / 100;
+        progBar.oninput = () => video.currentTime = (progBar.value / 100) * video.duration;
+        function formatTime(sec) { const m = Math.floor(sec / 60); const s = Math.floor(sec % 60); return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`; }
+        function formatTimeFull(sec) { const h = Math.floor(sec / 3600); const m = Math.floor((sec % 3600) / 60); const s = Math.floor(sec % 60); return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`; }
+
+        // Inicialização
+        window.onload = loadFromLocalStorage;
+        window.onclick = (e) => {
+             const menu = document.getElementById('settingsMenu');
+             const btn = document.querySelector('.settings-btn');
+             if (!btn.contains(e.target)) menu.classList.add('hidden');
+        };
+    </script>
+</body>
+</html>
